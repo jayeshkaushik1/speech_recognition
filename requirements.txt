@@ -1,6 +1,7 @@
 streamlit
-tensorflow-cpu
+tensorflow==2.15.0
 librosa
 numpy
 pandas
 matplotlib
+h5py
