@@ -4,7 +4,11 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import os
+import os
 
+# Debugging: Print all files in the current directory
+st.write("Current Directory:", os.getcwd())
+st.write("Files found:", os.listdir())
 # --- Config ---
 FRAME_LENGTH = 2048
 HOP_LENGTH = 512
