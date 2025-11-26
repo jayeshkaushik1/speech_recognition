@@ -1,116 +1,104 @@
 import streamlit as st
-import librosa
+import os
+import requests  # Used to download files
 import numpy as np
-import tensorflow as tf
+import librosa
 import pandas as pd
-import os
-import os
-# FORCE LEGACY KERAS (Fixes "bad marshal data" or "unknown layer" errors)
-os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
-import streamlit as st
+# --- 1. SETUP COMPATIBILITY ---
+# Force TensorFlow to understand old Keras files (Crucial for Kaggle models)
+os.environ['TF_USE_LEGACY_KERAS'] = '1'
 import tensorflow as tf
-# ... rest of your code
-# Debugging: Print all files in the current directory
-st.write("Current Directory:", os.getcwd())
-st.write("Files found:", os.listdir())
-# --- Config ---
+
+# --- 2. CONFIG ---
 FRAME_LENGTH = 2048
 HOP_LENGTH = 512
 TARGET_LENGTH = 180000
 EMOTION_LABELS = ['neutral', 'happy', 'sad', 'angry', 'fear', 'disgust']
 
-st.set_page_config(page_title="Speech Emotion Recognition", page_icon="🎙️")
-
-# --- Cache the model loading so it doesn't reload on every click ---
+# --- 3. DIRECT DOWNLOAD FUNCTION ---
 @st.cache_resource
-def load_models():
-    try:
-        # Check if files exist to prevent crashing
-        if not os.path.exists('model_female.h5') or not os.path.exists('model_male.h5'):
+def download_and_load_models():
+    # PASTE YOUR LINKS FROM STEP 1 HERE
+    female_url = "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/v1.0/model_female.h5"
+    male_url = "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/v1.0/model_male.h5"
+
+    status_text = st.empty()
+    
+    # Download Female Model
+    if not os.path.exists("model_female.h5"):
+        status_text.info("⏳ Downloading Female Model (This happens once)...")
+        try:
+            response = requests.get(female_url)
+            response.raise_for_status() # Check for download errors
+            with open("model_female.h5", "wb") as f:
+                f.write(response.content)
+        except Exception as e:
+            st.error(f"Failed to download Female model: {e}")
             return None, None
-        
-        model_f = tf.keras.models.load_model('model_female.h5')
-        model_m = tf.keras.models.load_model('model_male.h5')
+
+    # Download Male Model
+    if not os.path.exists("model_male.h5"):
+        status_text.info("⏳ Downloading Male Model...")
+        try:
+            response = requests.get(male_url)
+            response.raise_for_status()
+            with open("model_male.h5", "wb") as f:
+                f.write(response.content)
+        except Exception as e:
+            st.error(f"Failed to download Male model: {e}")
+            return None, None
+
+    status_text.info("⚙️ Loading TensorFlow models...")
+    try:
+        model_f = tf.keras.models.load_model("model_female.h5", compile=False)
+        model_m = tf.keras.models.load_model("model_male.h5", compile=False)
+        status_text.empty() # Clear message
         return model_f, model_m
     except Exception as e:
+        st.error(f"💥 Error reading model files. They might be corrupted. Error: {e}")
         return None, None
 
+# --- 4. PREPROCESSING ---
 def process_audio(file_path):
-    # 1. Load Audio
     y, sr = librosa.load(file_path, sr=22050)
-    
-    # 2. Trim Silence
     trimmed, _ = librosa.effects.trim(y, top_db=25)
     
-    # 3. Pad/Truncate to 180000
     if len(trimmed) > TARGET_LENGTH:
         padded = trimmed[:TARGET_LENGTH]
     else:
         padding = TARGET_LENGTH - len(trimmed)
         padded = np.pad(trimmed, (0, padding), 'constant')
     
-    # 4. Extract Features
     zcr = librosa.feature.zero_crossing_rate(padded, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH)
     rms = librosa.feature.rms(y=padded, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH)
     mfccs = librosa.feature.mfcc(y=padded, sr=sr, n_mfcc=13, hop_length=HOP_LENGTH)
     
-    # 5. Stack Features (1, 352, 15)
     features = np.concatenate((zcr.T, rms.T, mfccs.T), axis=1)
-    features = np.expand_dims(features, axis=0)
-    
-    return features.astype('float32')
+    return np.expand_dims(features, axis=0).astype('float32')
 
-# --- UI Layout ---
+# --- 5. APP UI ---
 st.title("🎙️ Speech Emotion Recognition")
-st.write("Upload a WAV file to detect the emotion.")
 
-# Load Models
-model_female, model_male = load_models()
+model_female, model_male = download_and_load_models()
 
-if model_female is None:
-    st.error("❌ Model files not found! Make sure 'model_female.h5' and 'model_male.h5' are in the same folder as app.py.")
-else:
+if model_female is not None:
     col1, col2 = st.columns(2)
-    
     with col1:
-        gender = st.selectbox("Select Speaker Gender", ["Female", "Male"])
-        audio_file = st.file_uploader("Upload Audio", type=['wav'])
-
+        gender = st.selectbox("Gender", ["Female", "Male"])
+        audio = st.file_uploader("Upload .wav", type=['wav'])
+    
     with col2:
-        if audio_file is not None:
-            st.audio(audio_file)
+        if audio and st.button("Analyze"):
+            with open("temp.wav", "wb") as f: f.write(audio.getbuffer())
             
-            if st.button("Analyze"):
-                with st.spinner("Listening..."):
-                    # Save temp file
-                    with open("temp.wav", "wb") as f:
-                        f.write(audio_file.getbuffer())
-                    
-                    try:
-                        # Process
-                        features = process_audio("temp.wav")
-                        
-                        # Predict
-                        if gender == 'Female':
-                            preds = model_female.predict(features)
-                        else:
-                            preds = model_male.predict(features)
-                            
-                        # Results
-                        idx = np.argmax(preds)
-                        label = EMOTION_LABELS[idx]
-                        conf = np.max(preds) * 100
-                        
-                        st.success(f"Emotion: **{label.upper()}**")
-                        st.info(f"Confidence: {conf:.2f}%")
-                        
-                        # Chart
-                        df = pd.DataFrame({"Emotion": EMOTION_LABELS, "Score": preds[0]})
-                        st.bar_chart(df.set_index("Emotion"))
-                        
-                    except Exception as e:
-                        st.error(f"Error processing audio: {e}")
-                    finally:
-                        if os.path.exists("temp.wav"):
-                            os.remove("temp.wav")
+            try:
+                feats = process_audio("temp.wav")
+                model = model_female if gender == 'Female' else model_male
+                preds = model.predict(feats)
+                
+                idx = np.argmax(preds)
+                st.header(f"{EMOTION_LABELS[idx].upper()}")
+                st.bar_chart(pd.DataFrame(preds[0], index=EMOTION_LABELS))
+            except Exception as e:
+                st.error(f"Analysis failed: {e}")
