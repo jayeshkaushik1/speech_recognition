@@ -5,4 +5,5 @@ pandas
 matplotlib
 librosa
 h5py
-tensorflow
+tensorflow==2.15.0
+tf-keras~=2.15.0
