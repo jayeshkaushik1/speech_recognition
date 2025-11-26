@@ -5,7 +5,16 @@ import tensorflow as tf
 import pandas as pd
 import os
 import os
-
+@st.cache_resource
+def load_models():
+    try:
+        model_f = tf.keras.models.load_model('model_female.h5')
+        model_m = tf.keras.models.load_model('model_male.h5')
+        return model_f, model_m
+    except Exception as e:
+        # This will print the actual error to the screen
+        st.error(f"💥 Error loading model: {e}")
+        return None, None
 # Debugging: Print all files in the current directory
 st.write("Current Directory:", os.getcwd())
 st.write("Files found:", os.listdir())
