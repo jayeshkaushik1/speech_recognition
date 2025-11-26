@@ -7,3 +7,4 @@ librosa
 h5py
 # We use 2.15 to ensure .h5 compatibility
 tensorflow==2.15.0
+
