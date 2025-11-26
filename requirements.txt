@@ -1,7 +1,9 @@
 streamlit
-tensorflow==2.15.0
-tf-keras
-h5py
-librosa
+requests
 numpy
 pandas
+matplotlib
+librosa
+h5py
+# We use 2.15 to ensure .h5 compatibility
+tensorflow==2.15.0
