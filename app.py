@@ -4,6 +4,13 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import os
+import os
+# FORCE LEGACY KERAS (Fixes "bad marshal data" or "unknown layer" errors)
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+
+import streamlit as st
+import tensorflow as tf
+# ... rest of your code
 # Debugging: Print all files in the current directory
 st.write("Current Directory:", os.getcwd())
 st.write("Files found:", os.listdir())
