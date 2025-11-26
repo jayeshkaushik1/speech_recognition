@@ -1,43 +1,52 @@
 import streamlit as st
 import os
-import requests  # Used to download files
+import requests
 import numpy as np
 import librosa
 import pandas as pd
 
-# --- 1. SETUP COMPATIBILITY ---
-# Force TensorFlow to understand old Keras files (Crucial for Kaggle models)
-os.environ['TF_USE_LEGACY_KERAS'] = '1'
+# --- 1. SETUP & COMPATIBILITY ---
 import tensorflow as tf
+from tensorflow.keras.layers import LSTM
 
-# --- 2. CONFIG ---
+# --- 2. THE FIX FOR YOUR ERROR ---
+# We create a custom class that deletes 'time_major' if it sees it
+class FixedLSTM(LSTM):
+    def __init__(self, **kwargs):
+        # The error is caused by this specific argument, so we pop it out
+        if 'time_major' in kwargs:
+            kwargs.pop('time_major')
+        super().__init__(**kwargs)
+
+# --- 3. CONFIG ---
 FRAME_LENGTH = 2048
 HOP_LENGTH = 512
 TARGET_LENGTH = 180000
 EMOTION_LABELS = ['neutral', 'happy', 'sad', 'angry', 'fear', 'disgust']
 
-# --- 3. DIRECT DOWNLOAD FUNCTION ---
+# --- 4. DIRECT DOWNLOAD & LOAD FUNCTION ---
 @st.cache_resource
 def download_and_load_models():
-    # PASTE YOUR LINKS FROM STEP 1 HERE
+    # *** PASTE YOUR GITHUB RELEASE LINKS HERE ***
+    # Make sure these are the "Direct" links (ending in .h5)
     female_url = "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/v1.0/model_female.h5"
     male_url = "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/v1.0/model_male.h5"
 
     status_text = st.empty()
     
-    # Download Female Model
+    # A. Download Female Model
     if not os.path.exists("model_female.h5"):
-        status_text.info("⏳ Downloading Female Model (This happens once)...")
+        status_text.info("⏳ Downloading Female Model...")
         try:
             response = requests.get(female_url)
-            response.raise_for_status() # Check for download errors
+            response.raise_for_status()
             with open("model_female.h5", "wb") as f:
                 f.write(response.content)
         except Exception as e:
             st.error(f"Failed to download Female model: {e}")
             return None, None
 
-    # Download Male Model
+    # B. Download Male Model
     if not os.path.exists("model_male.h5"):
         status_text.info("⏳ Downloading Male Model...")
         try:
@@ -49,17 +58,29 @@ def download_and_load_models():
             st.error(f"Failed to download Male model: {e}")
             return None, None
 
+    # C. Load Models using the Custom Object Fix
     status_text.info("⚙️ Loading TensorFlow models...")
     try:
-        model_f = tf.keras.models.load_model("model_female.h5", compile=False)
-        model_m = tf.keras.models.load_model("model_male.h5", compile=False)
-        status_text.empty() # Clear message
+        # We pass custom_objects to tell Keras to use our FixedLSTM class
+        model_f = tf.keras.models.load_model(
+            "model_female.h5", 
+            custom_objects={'LSTM': FixedLSTM}, 
+            compile=False
+        )
+        
+        model_m = tf.keras.models.load_model(
+            "model_male.h5", 
+            custom_objects={'LSTM': FixedLSTM}, 
+            compile=False
+        )
+        
+        status_text.empty() 
         return model_f, model_m
     except Exception as e:
-        st.error(f"💥 Error reading model files. They might be corrupted. Error: {e}")
+        st.error(f"💥 Error loading models: {e}")
         return None, None
 
-# --- 4. PREPROCESSING ---
+# --- 5. AUDIO PREPROCESSING ---
 def process_audio(file_path):
     y, sr = librosa.load(file_path, sr=22050)
     trimmed, _ = librosa.effects.trim(y, top_db=25)
@@ -77,7 +98,7 @@ def process_audio(file_path):
     features = np.concatenate((zcr.T, rms.T, mfccs.T), axis=1)
     return np.expand_dims(features, axis=0).astype('float32')
 
-# --- 5. APP UI ---
+# --- 6. APP UI ---
 st.title("🎙️ Speech Emotion Recognition")
 
 model_female, model_male = download_and_load_models()
@@ -98,7 +119,20 @@ if model_female is not None:
                 preds = model.predict(feats)
                 
                 idx = np.argmax(preds)
-                st.header(f"{EMOTION_LABELS[idx].upper()}")
-                st.bar_chart(pd.DataFrame(preds[0], index=EMOTION_LABELS))
+                confidence = np.max(preds) * 100
+                
+                # Display Results
+                st.success(f"Detected: **{EMOTION_LABELS[idx].upper()}**")
+                st.caption(f"Confidence: {confidence:.1f}%")
+                
+                # Bar Chart
+                chart_data = pd.DataFrame({
+                    "Emotion": EMOTION_LABELS,
+                    "Probability": preds[0]
+                })
+                st.bar_chart(chart_data.set_index("Emotion"))
+                
+            except Exception as e:
+                st.error(f"Analysis failed: {e}")ame(preds[0], index=EMOTION_LABELS))
             except Exception as e:
                 st.error(f"Analysis failed: {e}")
